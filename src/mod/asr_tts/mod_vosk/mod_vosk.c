@@ -120,54 +120,67 @@ static switch_status_t vosk_asr_close(switch_asr_handle_t *ah, switch_asr_flag_t
 /*! function to feed audio to the ASR */
 static switch_status_t vosk_asr_feed(switch_asr_handle_t *ah, void *data, unsigned int len, switch_asr_flag_t *flags)
 {
-	int poll_result;
-	kws_opcode_t oc;
-	uint8_t *rdata;
-	int rlen;
-	vosk_t *vosk = (vosk_t *) ah->private_info;
+    int poll_result;
+    kws_opcode_t oc;
+    uint8_t *rdata;
+    int rlen;
+    vosk_t *vosk = (vosk_t *) ah->private_info;
 
-	if (switch_test_flag(ah, SWITCH_ASR_FLAG_CLOSED))
-		return SWITCH_STATUS_BREAK;
+    if (switch_test_flag(ah, SWITCH_ASR_FLAG_CLOSED))
+        return SWITCH_STATUS_BREAK;
 
-	switch_mutex_lock(vosk->mutex);
+    switch_mutex_lock(vosk->mutex);
 
-	switch_buffer_write(vosk->audio_buffer, data, len);
-	if (switch_buffer_inuse(vosk->audio_buffer) > AUDIO_BLOCK_SIZE) {
-		char buf[AUDIO_BLOCK_SIZE];
-		int rlen;
+    switch_buffer_write(vosk->audio_buffer, data, len);
+    if (switch_buffer_inuse(vosk->audio_buffer) > AUDIO_BLOCK_SIZE) {
+        char buf[AUDIO_BLOCK_SIZE];
+        int rlen;
 
-		rlen = switch_buffer_read(vosk->audio_buffer, buf, AUDIO_BLOCK_SIZE);
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Sending data %d\n", rlen);
-		if (kws_write_frame(vosk->ws, WSOC_BINARY, buf, rlen) < 0) {
-			switch_mutex_unlock(vosk->mutex);
-			return SWITCH_STATUS_BREAK;
-		}
-	}
+        rlen = switch_buffer_read(vosk->audio_buffer, buf, AUDIO_BLOCK_SIZE);
 
-	poll_result = kws_wait_sock(vosk->ws, 0, KS_POLL_READ | KS_POLL_ERROR);
-	if (poll_result != KS_POLL_READ) {
-		switch_mutex_unlock(vosk->mutex);
-		return SWITCH_STATUS_SUCCESS;
-	}
-	rlen = kws_read_frame(vosk->ws, &oc, &rdata);
-	if (rlen < 0) {
-		switch_mutex_unlock(vosk->mutex);
-		return SWITCH_STATUS_BREAK;
-	}
-	if (oc == WSOC_PING) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Received ping\n");
-		kws_write_frame(vosk->ws, WSOC_PONG, rdata, rlen);
-		switch_mutex_unlock(vosk->mutex);
-		return SWITCH_STATUS_SUCCESS;
-	}
+        // Prepare JSON message with call_uuid
+        ks_json_t *message = ks_json_create_object();
+        ks_json_add_string_to_object(message, "type", "audio");
+        ks_json_add_string_to_object(message, "call_uuid", switch_core_session_get_uuid(ah->session));
+        ks_json_add_base64_to_object(message, "data", buf, rlen);
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Recieved %d bytes:\n%s\n", rlen, rdata);
-	switch_safe_free(vosk->result);
-	vosk->result = switch_safe_strdup((const char *)rdata);
-	switch_mutex_unlock(vosk->mutex);
+        char *message_str = ks_json_print_unformatted(message);
+        ks_json_delete(&message);
 
-	return SWITCH_STATUS_SUCCESS;
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Sending data with call_uuid: %s\n", message_str);
+        if (kws_write_frame(vosk->ws, WSOC_TEXT, message_str, strlen(message_str)) < 0) {
+            free(message_str);
+            switch_mutex_unlock(vosk->mutex);
+            return SWITCH_STATUS_BREAK;
+        }
+        free(message_str);
+    }
+
+    poll_result = kws_wait_sock(vosk->ws, 0, KS_POLL_READ | KS_POLL_ERROR);
+    if (poll_result != KS_POLL_READ) {
+        switch_mutex_unlock(vosk->mutex);
+        return SWITCH_STATUS_SUCCESS;
+    }
+    rlen = kws_read_frame(vosk->ws, &oc, &rdata);
+    if (rlen < 0) {
+        switch_mutex_unlock(vosk->mutex);
+        return SWITCH_STATUS_BREAK;
+    }
+    if (oc == WSOC_PING) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Received ping\n");
+        kws_write_frame(vosk->ws, WSOC_PONG, rdata, rlen);
+        switch_mutex_unlock(vosk->mutex);
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Received %d bytes:\n%s\n", rlen, rdata);
+    switch_safe_free(vosk->result);
+    vosk->result = switch_safe_strdup((const char *)rdata);
+    switch_mutex_unlock(vosk->mutex);
+
+    return SWITCH_STATUS_SUCCESS;
 }
+
 
 /*! function to pause recognizer */
 static switch_status_t vosk_asr_pause(switch_asr_handle_t *ah)
