@@ -63,7 +63,7 @@ static switch_status_t vosk_send_config(vosk_t *vosk, switch_asr_handle_t *ah, i
     ks_json_t *config_message = cJSON_CreateObject();
 
     ks_json_add_string_to_object(config_message, "type", "config");
-    ks_json_add_string_to_object(config_message, "call_uuid", switch_core_session_get_uuid(switch_core_asr_handle_get_session(ah)));
+    ks_json_add_string_to_object(config_message, "call_uuid", switch_core_session_get_uuid(ah->session));
 
     // Create and add phrase_list
     ks_json_t *phrase_list = cJSON_CreateArray();
@@ -87,6 +87,7 @@ static switch_status_t vosk_send_config(vosk_t *vosk, switch_asr_handle_t *ah, i
 
     return SWITCH_STATUS_SUCCESS;
 }
+
 
 /*! function to open the ASR interface */
 static switch_status_t vosk_asr_open(switch_asr_handle_t *ah, const char *codec, int rate, const char *dest, switch_asr_flag_t *flags) {
