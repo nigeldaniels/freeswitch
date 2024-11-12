@@ -92,9 +92,13 @@ static switch_status_t vosk_asr_open(switch_asr_handle_t *ah, const char *codec,
     ks_json_delete(&req);
 
     /* Send the config message */
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Preparing to send config message...\n");
     if (vosk_send_config(vosk, ah, rate) != SWITCH_STATUS_SUCCESS) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "NIGEL Failed to send config message\n");
         return SWITCH_STATUS_GENERR;
     }
+
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "NIGEL Config message sent successfully\n");
 
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "ASR open\n");
     return SWITCH_STATUS_SUCCESS;
